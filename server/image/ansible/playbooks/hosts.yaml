@@ -1,0 +1,5 @@
+---
+all:
+  hosts:
+    packer-linuxgsm:
+      ansible_host: inss-hc

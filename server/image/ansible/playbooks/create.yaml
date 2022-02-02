@@ -1,0 +1,154 @@
+---
+- name: create new image
+  hosts: "{{ buildhost|default('all') }}"
+  become: true
+
+  vars:
+    directories:
+      generic:
+        - bin
+      csgo:
+        - foo
+      inss:
+        - serverfiles/Insurgency/Config/Server
+        - serverfiles/Insurgency/Saved/Config/LinuxServer
+
+  tasks:
+    - name: set timezone
+      community.general.timezone:
+        name: Europe/Amsterdam
+    - name: configure interactive shell
+      ansible.builtin.copy:
+        src: files/profile.d/
+        dest: /etc/profile.d/
+        mode: 0644
+
+    # packages
+    - name: replace default sources.list
+      ansible.builtin.copy:
+        src: files/sources.list
+        dest: /etc/apt/sources.list
+        mode: 0644
+    - name: update all installed packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+    - name: install desired packages
+      ansible.builtin.apt:
+        name:
+          - bat
+          - fortunes-bofh-excuses
+          - nmon
+          - tmux
+        state: present
+    - name: create hard link for bat
+      ansible.builtin.file:
+        src: /usr/bin/batcat
+        dest: /usr/bin/bat
+        mode: 0755
+        state: hard
+
+    # persistent volume (only on: Digital Ocean)
+    - name: create mountpoint for persistent volume
+      when: packer_builder_type == 'digitalocean'
+      ansible.builtin.file:
+        path: /pv/{{ game }}
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+    - name: create fstab entry for persistent volume
+      when: packer_builder_type == 'digitalocean'
+      ansible.posix.mount:
+        src: LABEL={{ game }}
+        path: /pv/{{ game }}
+        boot: false
+        opts: noatime
+        state: present
+        fstype: ext4
+
+    # LinuxGSM
+    - name: list foreign architectures
+      ansible.builtin.command:
+        cmd: dpkg --print-foreign-architectures
+      register: dpkg_foreign_architectures
+      changed_when: false
+    - name: add i386 to the list of architectures
+      ansible.builtin.command:
+        cmd: dpkg --add-architecture i386
+      when: dpkg_foreign_architectures.stdout != 'i386'
+    - name: install linuxgsm dependencies
+      ansible.builtin.apt:
+        name:
+          - bc
+          - binutils
+          - bsdmainutils
+          - bzip2
+          - ca-certificates
+          - curl
+          - file
+          - gzip
+          - jq
+          - lib32gcc-s1
+          - lib32stdc++6
+          - libsdl2-2.0-0:i386
+          - netcat
+          - python3
+          - tar
+          - tmux
+          - unzip
+          - util-linux
+          - wget
+        state: present
+        update_cache: yes
+    - name: create user
+      ansible.builtin.user:
+        name: me
+        state: present
+        comment: no u
+        home: /home/me
+        shell: /usr/bin/bash
+    - name: create directories
+      loop: "{{ ['generic',game] | map('extract', directories) | flatten }}"
+      ansible.builtin.file:
+        path: /home/me/{{ item }}
+        state: directory
+        owner: me
+        group: me
+        mode: 0755
+    - name: create directory /home/me/.ssh
+      ansible.builtin.file:
+        path: /home/me/.ssh
+        state: directory
+        owner: me
+        group: me
+        mode: 0700
+    - name: create empty authorized_keys
+      ansible.builtin.file:
+        path: /home/me/.ssh/authorized_keys
+        state: touch
+        owner: me
+        group: me
+        mode: 0600
+    - name: copy rcon binary
+      ansible.builtin.copy:
+        src: files/rcon
+        dest: /home/me/bin/rcon
+        owner: me
+        group: me
+        mode: 0555
+    - name: download linuxgsm.sh
+      ansible.builtin.get_url:
+        url: https://linuxgsm.sh
+        dest: /home/me/linuxgsm.sh
+        owner: me
+        group: me
+        mode: 0755
+    - name: generate installer script
+      ansible.builtin.command:
+        cmd: su - me --command "./linuxgsm.sh {{ game }}"
+        creates: /home/me/{{ game }}server
+    - name: run installer script
+      ansible.builtin.command:
+        cmd: su - me --command "./{{ game }}server auto-install"
+        creates: /home/me/serverfiles/Insurgency/Binaries

@@ -1,0 +1,28 @@
+#
+# this file is managed by Terraform
+#
+
+##################################
+####### Instance Settings ########
+##################################
+
+#### Game Server Settings ####
+
+## Predefined Parameters | https://docs.linuxgsm.com/configuration/start-parameters
+ip="${ipv4_address}"
+port="27102"
+queryport="27131"
+rconport="27156"
+
+servername="<server name here> [ISMCmod]"
+password="<server password here>"
+rconpassword="<rcon password here>"
+
+defaultmap="${random_map}"
+defaultscenario="${random_scenario}"
+maxplayers="8"
+
+# custom
+mutators="ISMC_Casual,FastMovement"
+extra_parameters="-Mods -NoEAC"
+

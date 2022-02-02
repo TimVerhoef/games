@@ -1,0 +1,3 @@
+variable "game" {
+  type = string
+}

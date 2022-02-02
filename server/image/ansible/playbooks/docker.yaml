@@ -1,0 +1,43 @@
+---
+- name: install Docker on Debian 11
+  hosts: all
+  become: true
+
+  tasks:
+    - name: install Docker dependencies
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - gpg
+          - gpg-agent
+          - xz-utils
+        state: present
+        update_cache: yes
+    - name: add Docker repository key
+      ansible.builtin.apt_key:
+        id: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+        url: https://download.docker.com/linux/debian/gpg
+        keyring: /usr/share/keyrings/docker-archive-keyring.gpg
+        state: present
+    - name: add Docker repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ architecture_map[ansible_architecture] }} \
+               signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] \
+               https://download.docker.com/linux/debian \
+               {{ ansible_distribution_release }} stable"
+        state: present
+      vars:
+        architecture_map:
+          "x86_64": "amd64"
+          "aarch64": "arm64"
+          "aarch": "arm64"
+          "armhf": "armhf"
+          "armv7l": "armhf"
+    - name: install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes

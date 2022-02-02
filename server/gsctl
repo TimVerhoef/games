@@ -1,0 +1,237 @@
+#!/bin/bash
+
+# --
+# gsctl - game server controller
+#
+
+
+# ===[ functions ]==============================================================
+
+function usage () {
+    cat <<EOF
+usage: gsctl -g <game> -p <infra provider> <action>
+
+manage dedicated gameservers based on Debian 11 and LinuxGSM
+
+  -g  select game:
+        csgo -> Counter Strike: Global Offensive
+        inss -> Insurgency: Sandstorm
+        ismc -> Insurgency: Sandstorm [ISMCmod]
+       *lgsm -> bare LinuxGSM server
+
+  -p  select infrastructure provider:
+        do -> Digital Ocean
+        fc -> Fuga Cloud
+        hc -> Hetzner Cloud
+       *qk -> QEMU/KVM/libvirt
+
+  <action>
+        create-image -> create new server image from scratch
+        update-image -> update existing server image
+
+        start  -> start game server
+        stop   -> stop game server
+        status -> show game server status
+
+EOF
+    exit 8
+}
+
+
+# ===[ options ]================================================================
+
+# parse arguments
+while getopts ":g:p:" opt
+do
+    case $opt in
+        g)
+            ARG_G="${OPTARG}"
+            ;;
+        p)
+            ARG_P="${OPTARG}"
+            ;;
+        \?|:)
+            usage
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+[[ -z $1 || -n $2 ]] && usage
+ARG_A="$1"
+
+# set defaults
+[[ -z $ARG_G ]] && ARG_G='inss'
+[[ -z $ARG_P ]] && ARG_P='hc'
+
+# GAME: ... 4-character game abbreviation (https://linuxgsm.com/servers/)
+case $ARG_G in
+    csgo)
+        GAME="${ARG_G}"
+        GAME_TITLE="Counter-Strike: Global Offensive"
+        ;;
+    inss)
+        GAME="${ARG_G}"
+        GAME_TITLE="Insurgency: Sandstorm"
+        ;;
+    ismc)
+        GAME="${ARG_G}"
+        GAME_TITLE="Insurgency: Sandstorm [ISMCmod]"
+        PARENT_GAME_TITLE="Insurgency: Sandstorm"
+        ;;
+    lgsm)
+        GAME="${ARG_G}"
+        GAME_TITLE="LinuxGSM"
+        usage
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+# INFRA_PROVIDER: ... infrastructure provider
+# BUILDER_TYPE: ..... Packer builder type
+# TF_PROVIDER:....... Terraform provider
+case $ARG_P in
+    do)
+        INFRA_PROVIDER='digital_ocean'
+        INFRA_PROVIDER_TITLE='Digital Ocean'
+        BUILDER_TYPE='digitalocean'
+        ;;
+    fc)
+        INFRA_PROVIDER='fuga_cloud'
+        INFRA_PROVIDER_TITLE='Fuga Cloud'
+        BUILDER_TYPE='openstack'
+        ;;
+    hc)
+        INFRA_PROVIDER='hetzner_cloud'
+        INFRA_PROVIDER_TITLE='Hetzner Cloud'
+        BUILDER_TYPE='hcloud'
+        ;;
+    qk)
+        INFRA_PROVIDER='TBD'
+        INFRA_PROVIDER_TITLE='QEMU/KVM/libvirt'
+        BUILDER_TYPE='tbd'
+        usage
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+case $ARG_A in
+    create-image|create)
+        ACTION="create"
+        ;;
+    update-image|update)
+        ACTION="update"
+        ;;
+    start|stop|status)
+        ACTION="${ARG_A}"
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+
+# ===[ initialize ]=============================================================
+
+# $TF_PROVIDER equals $BUILDER_TYPE unless explicitly defined
+[[ -z $TF_PROVIDER ]] && TF_PROVIDER="${BUILDER_TYPE}"
+
+# Define Packer builder configuration block name.
+# Builder types that are used for more than one infra provider should include
+#  the infrastructure provider in their name.
+case $BUILDER_TYPE in
+    openstack)
+        BUILDER_NAME="${INFRA_PROVIDER}_${ACTION}"
+        ;;
+    *)
+        BUILDER_NAME="${ACTION}"
+        ;;
+esac
+
+# run from the directory where gsctl lives
+CWD="$(pwd)"
+cd "$(dirname $0)" || exit 1
+
+# handle exceptions
+case $ACTION in
+    create|update)
+        [[ -n "${PARENT_GAME_TITLE}" ]] && \
+            printf "error: %s uses the image of %s\n" \
+                   "${GAME_TITLE}" "${PARENT_GAME_TITLE}" && \
+            exit 2
+        ;;
+esac
+
+case $ACTION in
+    update)
+        [[ $GAME = "lgsm" ]] && \
+            printf "error: %s should not be updated!\n" \
+                   "${GAME_TITLE}" && \
+            exit 3
+        ;;
+esac
+
+
+# ===[ main ]===================================================================
+
+case $ACTION in
+    create|update)
+        printf "%s\bing server image for %s on %s:\n\n" \
+          "${ACTION}" "${GAME_TITLE}" "${INFRA_PROVIDER_TITLE}"
+
+        for COMMAND in validate build
+        do
+            packer ${COMMAND} -only="gameserver.${BUILDER_TYPE}.${BUILDER_NAME}" \
+                              -var="action=${ACTION}" \
+                              -var="game=${GAME}" \
+                              image || exit $?
+            echo
+        done
+        ;;
+    start)
+        printf "deploying %s on %s:\n\n" \
+               "${GAME_TITLE}" "${INFRA_PROVIDER_TITLE}"
+        terraform -chdir=providers/${TF_PROVIDER} workspace select ${GAME} 1>/dev/null 2>&1
+        [[ $? -ne 0 ]] && \
+            terraform -chdir=providers/${TF_PROVIDER} workspace new ${GAME} || \
+            exit $?
+
+        terraform -chdir=providers/${TF_PROVIDER} init || exit $?
+        echo
+        terraform -chdir=providers/${TF_PROVIDER} validate || exit $?
+        terraform -chdir=providers/${TF_PROVIDER} apply \
+                  -auto-approve \
+                  -var="game=${GAME}" \
+                  -var-file="config.${GAME}.tfvars" \
+                  || exit $?
+        echo
+        ;;
+    stop)
+        printf "destroying %s on %s:\n\n" \
+               "${GAME_TITLE}" "${INFRA_PROVIDER_TITLE}"
+        terraform -chdir=providers/${TF_PROVIDER} workspace select ${GAME} || exit $?
+        terraform -chdir=providers/${TF_PROVIDER} destroy \
+                  -auto-approve \
+                  -var="game=${GAME}" \
+                  -var-file="config.${GAME}.tfvars" \
+                  || exit $?
+        echo
+        ;;
+    status)
+        printf "status of %s on %s:\n\n" \
+               "${GAME_TITLE}" "${INFRA_PROVIDER_TITLE}"
+        terraform -chdir=providers/${TF_PROVIDER} workspace select ${GAME} || exit $?
+        terraform -chdir=providers/${TF_PROVIDER} output || exit $?
+        echo
+        ;;
+esac
+
+
+# ===[ post ]===================================================================
+
+terraform -chdir=providers/${TF_PROVIDER} workspace select default
+cd "${CWD}"
+

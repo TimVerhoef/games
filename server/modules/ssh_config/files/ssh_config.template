@@ -1,0 +1,10 @@
+#
+# this file is managed by Terraform
+#
+Host ${name}
+  Hostname ${ipv4_address}
+  User root
+  CheckHostIP no
+  LogLevel ERROR
+  StrictHostKeyChecking no
+  UserKnownHostsFile=/dev/null

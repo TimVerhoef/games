@@ -1,0 +1,4 @@
+*.swp
+.terraform*
+secret*
+terraform.tfstate*

@@ -1,0 +1,8 @@
+#
+# this file is managed by Terraform
+#
+[${game}]
+hostname = ${ipv4_address}
+port = 27156
+password = <rcon password here>
+minecraft = false

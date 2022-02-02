@@ -1,0 +1,32 @@
+---
+- name: update existing image
+  hosts: "{{ buildhost|default('all') }}"
+  become: true
+
+  tasks:
+    - name: configure interactive shell
+      ansible.builtin.copy:
+        src: files/profile.d/
+        dest: /etc/profile.d/
+        mode: 0644
+    - name: update all installed packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+
+    # LinuxGSM
+    - name: update linuxgsm
+      ansible.builtin.command:
+        cmd: su - me --command "./{{ game }}server update-lgsm"
+      register: update_lgsm
+      changed_when: update_lgsm.rc != 0
+      failed_when: update_lgsm.rc != 0
+    - name: update gameserver
+      ansible.builtin.command:
+        cmd: su - me --command "./{{ game }}server update"
+      register: update
+      changed_when: update.rc != 0
+      failed_when: update.rc != 0
+    - name: show update log
+      ansible.builtin.debug:
+        var: update.stdout_lines

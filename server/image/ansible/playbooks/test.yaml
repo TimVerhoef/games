@@ -1,0 +1,16 @@
+---
+- name: test
+  hosts: all
+  become: true
+
+  vars:
+    game: inss
+
+  tasks:
+    - name: copy rcon binary
+      ansible.builtin.copy:
+        src: files/rcon
+        dest: /home/me/bin/rcon
+        owner: me
+        group: me
+        mode: 0555
