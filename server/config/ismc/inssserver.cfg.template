@@ -18,8 +18,8 @@ servername="<server name here> [ISMCmod]"
 password="<server password here>"
 rconpassword="<rcon password here>"
 
-defaultmap="${random_map}"
-defaultscenario="${random_scenario}"
+defaultmap="Bab"
+defaultscenario="Scenario_Bab_Checkpoint_Insurgents"
 maxplayers="8"
 
 # custom
